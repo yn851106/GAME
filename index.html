@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Roblox-style Obby Game</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js (3D Graphics Engine) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        /* Shift Lock Crosshair */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 16px;
+            height: 16px;
+            pointer-events: none;
+            display: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+        #crosshair::before {
+            top: 7px;
+            left: 0;
+            width: 16px;
+            height: 2px;
+        }
+        #crosshair::after {
+            top: 0;
+            left: 7px;
+            width: 2px;
+            height: 16px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <!-- Canvas Container for 3D Scene -->
+    <div id="canvas-container"></div>
+
+    <!-- Shift Lock Center Crosshair -->
+    <div id="crosshair"></div>
+
+    <!-- UI Overlay -->
+    <div class="absolute top-0 left-0 w-full p-4 pointer-events-none flex justify-between items-start z-10">
+        <!-- Status Panel -->
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-xl border border-white/10 shadow-2xl flex flex-col gap-2 min-w-[220px]">
+            <div class="flex items-center justify-between">
+                <span class="text-xs uppercase tracking-wider text-gray-400 font-bold">Stage / Checkpoint</span>
+                <span id="stage-display" class="text-xl font-extrabold text-yellow-400">1 / 5</span>
+            </div>
+            
+            <!-- Health Bar -->
+            <div class="w-full bg-gray-800 rounded-full h-4 overflow-hidden border border-gray-700 relative">
+                <div id="health-bar" class="bg-red-500 h-full w-full transition-all duration-200"></div>
+                <span id="health-text" class="absolute inset-0 text-[10px] font-bold text-white flex items-center justify-center shadow-sm">100 HP</span>
+            </div>
+
+            <!-- Shift Lock Status Badge -->
+            <div class="flex items-center justify-between pt-1">
+                <span class="text-xs text-gray-300">Shift Lock:</span>
+                <span id="shift-lock-badge" class="px-2 py-0.5 rounded text-xs font-bold bg-gray-700 text-gray-400">OFF (Shift키)</span>
+            </div>
+        </div>
+
+        <!-- Instructions Panel -->
+        <div class="bg-black/60 backdrop-blur-md p-4 rounded-xl border border-white/10 shadow-2xl max-w-xs text-xs space-y-1.5 hidden md:block">
+            <h3 class="font-bold text-sm text-yellow-400 mb-2 border-b border-white/10 pb-1"><i class="fa-solid font-bold fa-gamepad mr-1"></i> 조작법</h3>
+            <p><span class="bg-white/20 px-1.5 py-0.5 rounded font-semibold text-white">W, A, S, D</span> : 이동</p>
+            <p><span class="bg-white/20 px-1.5 py-0.5 rounded font-semibold text-white">Space</span> : 점프</p>
+            <p><span class="bg-white/20 px-1.5 py-0.5 rounded font-semibold text-white">Shift</span> : Shift Lock 토글 (카메라/캐릭터 시점 고정)</p>
+            <p><span class="bg-white/20 px-1.5 py-0.5 rounded font-semibold text-white">마우스 드래그</span> : 화면 회전 (Shift Lock OFF 시)</p>
+            <div class="pt-1 text-gray-400 border-t border-white/10 mt-2">
+                <p class="text-[11px] text-red-400">⚠️ 붉은색 킬 블록을 조심하세요!</p>
+                <p class="text-[11px] text-green-400">🏁 초록색 체크포인트를 밟으면 저장됩니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start / Lock Overlay Prompt (For Mouse Capture in Shift Lock) -->
+    <div id="start-modal" class="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+        <div class="bg-gray-800 p-8 rounded-2xl border border-gray-700 text-center max-w-md shadow-2xl">
+            <div class="text-4xl mb-3">🏃‍♂️💨</div>
+            <h1 class="text-2xl font-black mb-2 text-white">3D 로블록스 점프맵</h1>
+            <p class="text-gray-300 text-sm mb-6">장애물을 피하고 체크포인트를 지나 최종 목적지까지 도착하세요!</p>
+            <button id="start-btn" class="w-full py-3.5 bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-extrabold rounded-xl text-lg shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                게임 시작하기
+            </button>
+        </div>
+    </div>
+
+    <!-- Game Victory Screen -->
+    <div id="victory-modal" class="absolute inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 hidden">
+        <div class="bg-gray-800 p-8 rounded-2xl border border-yellow-500/50 text-center max-w-md shadow-2xl">
+            <div class="text-5xl mb-3 animate-bounce">🏆</div>
+            <h1 class="text-3xl font-black mb-2 text-yellow-400">축하합니다!</h1>
+            <p class="text-gray-200 text-base mb-6">모든 점프맵 장애물을 통과하여 클리어하셨습니다!</p>
+            <button id="restart-btn" class="w-full py-3.5 bg-green-500 hover:bg-green-400 text-white font-extrabold rounded-xl text-lg shadow-lg transition duration-200">
+                처음부터 다시 도전
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-green-600 text-white font-bold px-6 py-3 rounded-full shadow-2xl border border-white/20 opacity-0 transition-opacity duration-300 pointer-events-none z-30 flex items-center gap-2">
+        <i class="fa-solid fa-flag"></i> <span id="toast-text">체크포인트 저장 완료!</span>
+    </div>
+
+    <script>
+        // ==========================================
+        // GAME CONFIG & VARIABLES
+        // ==========================================
+        let scene, camera, renderer;
+        let player, playerMesh;
+        let killBlocks = [];
+        let checkpoints = [];
+        let platforms = [];
+        let activeDisappearingPlatforms = [];
+
+        // Player Stats & Physics
+        const playerStats = {
+            maxHealth: 100,
+            health: 100,
+            currentCheckpoint: 0,
+            checkpointPos: new THREE.Vector3(0, 3, 0),
+            speed: 12,
+            jumpForce: 13,
+            velocity: new THREE.Vector3(),
+            isGrounded: false,
+            radius: 0.6,
+            height: 1.6
+        };
+
+        // Shift Lock & Camera Controls
+        let shiftLock = false;
+        let cameraYaw = 0;   // Horizontal angle
+        let cameraPitch = 0.3; // Vertical angle
+        const cameraDistance = 8;
+        
+        // Input state
+        const keys = {
+            w: false, a: false, s: false, d: false,
+            space: false, shift: false
+        };
+
+        // Touch/Mobile fallback state
+        let isPointerLocked = false;
+        let isDead = false;
+
+        // Stage Configuration
+        const stageData = [
+            { id: 1, name: "시작 지점", pos: new THREE.Vector3(0, 0, 0) },
+            { id: 2, name: "킬 블록 점프대", pos: new THREE.Vector3(0, 0, -45) },
+            { id: 3, name: "회전 킬 블록", pos: new THREE.Vector3(0, 0, -95) },
+            { id: 4, name: "사라지는 발판", pos: new THREE.Vector3(0, 0, -145) },
+            { id: 5, name: "최종 골인 지점", pos: new THREE.Vector3(0, 0, -195) }
+        ];
+
+        // ==========================================
+        // INITIALIZATION
+        // ==========================================
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 1. Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x68b0ed); // Roblox Sky Blue
+            scene.fog = new THREE.FogExp2(0x68b0ed, 0.008);
+
+            // 2. Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            // 3. Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // 4. Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(40, 60, 20);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 300;
+            const d = 100;
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            scene.add(dirLight);
+
+            // 5. Create Player
+            createPlayer();
+
+            // 6. Build Obby Course
+            buildMap();
+
+            // 7. Event Listeners
+            setupEventListeners();
+
+            // 8. Window Resize Handler
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // ==========================================
+        // PLAYER CREATION (Roblox Character Style)
+        // ==========================================
+        function createPlayer() {
+            player = new THREE.Group();
+
+            // Roblox Blocky Character Materials
+            const torsoMat = new THREE.MeshStandardMaterial({ color: 0x00a2ff, roughness: 0.3 }); // Blue Shirt
+            const limbMat = new THREE.MeshStandardMaterial({ color: 0xe5a93c, roughness: 0.3 });  // Skin Tone
+            const pantsMat = new THREE.MeshStandardMaterial({ color: 0x1b2a4a, roughness: 0.3 }); // Dark Pants
+
+            // Torso
+            const torsoGeo = new THREE.BoxGeometry(0.8, 0.9, 0.4);
+            const torso = new THREE.Mesh(torsoGeo, torsoMat);
+            torso.position.y = 0.95;
+            torso.castShadow = true;
+            player.add(torso);
+
+            // Head
+            const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const head = new THREE.Mesh(headGeo, limbMat);
+            head.position.y = 1.65;
+            head.castShadow = true;
+            player.add(head);
+
+            // Face Details (Eyes & Smile)
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const eyeGeo = new THREE.PlaneGeometry(0.08, 0.08);
+            
+            const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+            leftEye.position.set(-0.12, 1.7, 0.26);
+            player.add(leftEye);
+
+            const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+            rightEye.position.set(0.12, 1.7, 0.26);
+            player.add(rightEye);
+
+            // Arms
+            const armGeo = new THREE.BoxGeometry(0.35, 0.85, 0.35);
+            const leftArm = new THREE.Mesh(armGeo, limbMat);
+            leftArm.position.set(-0.6, 0.925, 0);
+            leftArm.castShadow = true;
+            player.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeo, limbMat);
+            rightArm.position.set(0.6, 0.925, 0);
+            rightArm.castShadow = true;
+            player.add(rightArm);
+
+            // Legs
+            const legGeo = new THREE.BoxGeometry(0.38, 0.85, 0.38);
+            const leftLeg = new THREE.Mesh(legGeo, pantsMat);
+            leftLeg.position.set(-0.21, 0.425, 0);
+            leftLeg.castShadow = true;
+            player.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeo, pantsMat);
+            rightLeg.position.set(0.21, 0.425, 0);
+            rightLeg.castShadow = true;
+            player.add(rightLeg);
+
+            player.position.copy(playerStats.checkpointPos);
+            scene.add(player);
+        }
+
+        // ==========================================
+        // MAP & OBBY BUILDER
+        // ==========================================
+        function buildMap() {
+            // Helper for platforms
+            function createPlatform(x, y, z, w, h, d, color = 0xa3a3a3) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.5 });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.receiveShadow = true;
+                mesh.castShadow = true;
+                scene.add(mesh);
+
+                platforms.push({
+                    box: new THREE.Box3().setFromObject(mesh),
+                    mesh: mesh,
+                    isKill: false
+                });
+                return mesh;
+            }
+
+            // Helper for Kill Blocks (Red Hazard Blocks)
+            function createKillBlock(x, y, z, w, h, d, behavior = null) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                // Glowing Neon Red Material
+                const mat = new THREE.MeshStandardMaterial({ 
+                    color: 0xff0033, 
+                    emissive: 0xff0022, 
+                    emissiveIntensity: 0.6, 
+                    roughness: 0.2 
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.receiveShadow = true;
+                mesh.castShadow = true;
+                scene.add(mesh);
+
+                const killObj = {
+                    mesh: mesh,
+                    box: new THREE.Box3().setFromObject(mesh),
+                    behavior: behavior
+                };
+
+                killBlocks.push(killObj);
+                return killObj;
+            }
+
+            // Helper for Checkpoints
+            function createCheckpoint(stageIdx, x, y, z) {
+                // Base platform
+                createPlatform(x, y, z, 12, 1, 12, 0x3b82f6);
+
+                // Checkpoint Pad
+                const padGeo = new THREE.CylinderGeometry(3, 3, 0.2, 32);
+                const padMat = new THREE.MeshStandardMaterial({ 
+                    color: 0x22c55e, 
+                    emissive: 0x15803d, 
+                    emissiveIntensity: 0.3 
+                });
+                const pad = new THREE.Mesh(padGeo, padMat);
+                pad.position.set(x, y + 0.55, z);
+                scene.add(pad);
+
+                checkpoints.push({
+                    id: stageIdx,
+                    position: new THREE.Vector3(x, y + 2, z),
+                    mesh: pad,
+                    activated: stageIdx === 0
+                });
+            }
+
+            // --- STAGE 1: Spawn Area ---
+            createCheckpoint(0, 0, 0, 0);
+
+            // Stepping blocks
+            createPlatform(0, 0, -12, 4, 1, 4, 0xffffff);
+            createPlatform(0, 0, -22, 4, 1, 4, 0xffffff);
+            createPlatform(0, 0, -32, 4, 1, 4, 0xffffff);
+
+            // --- STAGE 2: Kill Block Jumps ---
+            createCheckpoint(1, 0, 0, -45);
+
+            // Low Kill Blocks to jump over
+            createPlatform(0, 0, -60, 6, 1, 16, 0x94a3b8);
+            createKillBlock(0, 0.8, -56, 5.8, 0.6, 1);
+            createKillBlock(0, 0.8, -60, 5.8, 0.6, 1);
+            createKillBlock(0, 0.8, -64, 5.8, 0.6, 1);
+
+            // Long Jump over big Kill hazard
+            createPlatform(0, 0, -75, 5, 1, 5, 0x94a3b8);
+            createKillBlock(0, -0.2, -82.5, 8, 0.4, 10);
+            createPlatform(0, 0, -90, 5, 1, 5, 0x94a3b8);
+
+            // --- STAGE 3: Spinner Obstacles ---
+            createCheckpoint(2, 0, 0, -95);
+
+            // Platform with central rotating hazard arm
+            createPlatform(0, 0, -115, 12, 1, 24, 0x64748b);
+
+            // Rotating Kill Bars
+            const spinner1 = createKillBlock(0, 1.2, -110, 10, 0.8, 0.8);
+            spinner1.behavior = (time) => {
+                spinner1.mesh.rotation.y = time * 2;
+                spinner1.box.setFromObject(spinner1.mesh);
+            };
+
+            const spinner2 = createKillBlock(0, 1.2, -120, 10, 0.8, 0.8);
+            spinner2.behavior = (time) => {
+                spinner2.mesh.rotation.y = -time * 2.5;
+                spinner2.box.setFromObject(spinner2.mesh);
+            };
+
+            createPlatform(0, 0, -135, 4, 1, 4, 0x94a3b8);
+
+            // --- STAGE 4: Disappearing Platforms ---
+            createCheckpoint(3, 0, 0, -145);
+
+            // Series of fading platforms
+            const disPositions = [-157, -165, -173, -181];
+            disPositions.forEach((zPos, idx) => {
+                const platMesh = createPlatform(0, 0, zPos, 4, 0.8, 4, 0xe2e8f0);
+                activeDisappearingPlatforms.push({
+                    mesh: platMesh,
+                    box: platforms[platforms.length - 1].box,
+                    offset: idx * 0.8,
+                    solid: true
+                });
+            });
+
+            // --- STAGE 5: Victory Platform ---
+            createCheckpoint(4, 0, 0, -195);
+
+            // Golden Victory Crown/Trophy Platform
+            const trophyPlatform = createPlatform(0, 0, -210, 16, 2, 16, 0xeab308);
+            
+            // Victory trigger box
+            const crownGeo = new THREE.TorusGeometry(2, 0.5, 16, 100);
+            const crownMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.8, roughness: 0.2 });
+            const crown = new THREE.Mesh(crownGeo, crownMat);
+            crown.position.set(0, 4, -210);
+            crown.rotation.x = Math.PI / 2;
+            scene.add(crown);
+
+            checkpoints.push({
+                id: 5, // Finish line
+                position: new THREE.Vector3(0, 2, -210),
+                mesh: crown,
+                isFinish: true
+            });
+        }
+
+        // ==========================================
+        // INPUT HANDLERS & SHIFT LOCK
+        // ==========================================
+        function setupEventListeners() {
+            // Keyboard Key Down
+            window.addEventListener('keydown', (e) => {
+                const key = e.key.toLowerCase();
+                if (key === 'w' || key === 'arrowup') keys.w = true;
+                if (key === 'a' || key === 'arrowleft') keys.a = true;
+                if (key === 's' || key === 'arrowdown') keys.s = true;
+                if (key === 'd' || key === 'arrowright') keys.d = true;
+                if (e.code === 'Space') keys.space = true;
+
+                // Shift Lock Toggle
+                if (e.key === 'Shift') {
+                    e.preventDefault();
+                    toggleShiftLock();
+                }
+            });
+
+            // Keyboard Key Up
+            window.addEventListener('keyup', (e) => {
+                const key = e.key.toLowerCase();
+                if (key === 'w' || key === 'arrowup') keys.w = false;
+                if (key === 'a' || key === 'arrowleft') keys.a = false;
+                if (key === 's' || key === 'arrowdown') keys.s = false;
+                if (key === 'd' || key === 'arrowright') keys.d = false;
+                if (e.code === 'Space') keys.space = false;
+            });
+
+            // Mouse Movement for Camera Control
+            let isDragging = false;
+            let previousMousePosition = { x: 0, y: 0 };
+
+            window.addEventListener('mousedown', (e) => {
+                if (e.button === 0 || e.button === 2) {
+                    isDragging = true;
+                    previousMousePosition = { x: e.clientX, y: e.clientY };
+                }
+            });
+
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            window.addEventListener('mousemove', (e) => {
+                if (shiftLock) {
+                    // When Shift Lock is enabled, movement directly rotates camera
+                    const sensitivity = 0.003;
+                    cameraYaw -= e.movementX * sensitivity;
+                    cameraPitch += e.movementY * sensitivity;
+                    // Clamp pitch
+                    cameraPitch = Math.max(-0.2, Math.min(1.2, cameraPitch));
+                } else if (isDragging) {
+                    // Regular camera drag
+                    const deltaX = e.clientX - previousMousePosition.x;
+                    const deltaY = e.clientY - previousMousePosition.y;
+
+                    cameraYaw -= deltaX * 0.005;
+                    cameraPitch += deltaY * 0.005;
+                    cameraPitch = Math.max(-0.2, Math.min(1.2, cameraPitch));
+
+                    previousMousePosition = { x: e.clientX, y: e.clientY };
+                }
+            });
+
+            // Context Menu prevent (so right-click camera rotation feels clean)
+            window.addEventListener('contextmenu', e => e.preventDefault());
+
+            // Start & Restart UI Handlers
+            document.getElementById('start-btn').addEventListener('click', () => {
+                document.getElementById('start-modal').classList.add('hidden');
+            });
+
+            document.getElementById('restart-btn').addEventListener('click', () => {
+                document.getElementById('victory-modal').classList.add('hidden');
+                respawnPlayer(true); // Full reset to stage 1
+            });
+        }
+
+        // Toggle Shift Lock function
+        function toggleShiftLock() {
+            shiftLock = !shiftLock;
+
+            const badge = document.getElementById('shift-lock-badge');
+            const crosshair = document.getElementById('crosshair');
+
+            if (shiftLock) {
+                badge.textContent = "ON (Shift키)";
+                badge.className = "px-2 py-0.5 rounded text-xs font-bold bg-green-500 text-white animate-pulse";
+                crosshair.style.display = "block";
+                
+                // Request Pointer Lock for true Roblox Shift-Lock behavior
+                document.body.requestPointerLock();
+            } else {
+                badge.textContent = "OFF (Shift키)";
+                badge.className = "px-2 py-0.5 rounded text-xs font-bold bg-gray-700 text-gray-400";
+                crosshair.style.display = "none";
+                
+                if (document.pointerLockElement === document.body) {
+                    document.exitPointerLock();
+                }
+            }
+        }
+
+        // Window resize handler
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // ==========================================
+        // GAME LOGIC & PHYSICS UPDATE
+        // ==========================================
+        let clock = new THREE.Clock();
+
+        function update() {
+            const delta = Math.min(clock.getDelta(), 0.1);
+            const elapsedTime = clock.getElapsedTime();
+
+            if (isDead) return;
+
+            // 1. Move & Update Hazards
+            killBlocks.forEach(kb => {
+                if (kb.behavior) kb.behavior(elapsedTime);
+            });
+
+            // 2. Disappearing Platform Logic
+            activeDisappearingPlatforms.forEach(dp => {
+                const cycle = (elapsedTime + dp.offset) % 3;
+                if (cycle > 2.0) {
+                    // Fading out / Solid OFF
+                    dp.mesh.material.transparent = true;
+                    dp.mesh.material.opacity = 0.2;
+                    dp.solid = false;
+                } else {
+                    // Solid ON
+                    dp.mesh.material.transparent = false;
+                    dp.mesh.material.opacity = 1.0;
+                    dp.solid = true;
+                }
+            });
+
+            // 3. Movement Physics Vector Calculation
+            const moveVector = new THREE.Vector3();
+
+            if (keys.w) moveVector.z -= 1;
+            if (keys.s) moveVector.z += 1;
+            if (keys.a) moveVector.x -= 1;
+            if (keys.d) moveVector.x += 1;
+
+            moveVector.normalize();
+
+            // Transform movement relative to camera angle
+            const cameraRotationY = cameraYaw;
+            const forward = new THREE.Vector3(Math.sin(cameraRotationY), 0, Math.cos(cameraRotationY)).negate();
+            const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).negate();
+
+            const targetVelocityX = (forward.x * moveVector.z + right.x * moveVector.x) * playerStats.speed;
+            const targetVelocityZ = (forward.z * moveVector.z + right.z * moveVector.x) * playerStats.speed;
+
+            playerStats.velocity.x = targetVelocityX;
+            playerStats.velocity.z = targetVelocityZ;
+
+            // Gravity
+            playerStats.velocity.y -= 32 * delta;
+
+            // Jump
+            if (keys.space && playerStats.isGrounded) {
+                playerStats.velocity.y = playerStats.jumpForce;
+                playerStats.isGrounded = false;
+            }
+
+            // Apply Velocity to Position
+            player.position.x += playerStats.velocity.x * delta;
+            player.position.y += playerStats.velocity.y * delta;
+            player.position.z += playerStats.velocity.z * delta;
+
+            // --- Shift Lock Rotation vs Free Character Rotation ---
+            if (shiftLock) {
+                // Character always faces camera look direction
+                player.rotation.y = cameraYaw;
+            } else if (moveVector.lengthSq() > 0) {
+                // Character faces direction of movement
+                const moveAngle = Math.atan2(playerStats.velocity.x, playerStats.velocity.z);
+                player.rotation.y = moveAngle;
+            }
+
+            // 4. Collision Detection with Platforms
+            playerStats.isGrounded = false;
+            const playerBox = new THREE.Box3().setFromCenterAndSize(
+                new THREE.Vector3(player.position.x, player.position.y + playerStats.height / 2, player.position.z),
+                new THREE.Vector3(playerStats.radius * 2, playerStats.height, playerStats.radius * 2)
+            );
+
+            // Platform Ground Collisions
+            platforms.forEach(plat => {
+                // Skip if platform is currently invisible/non-solid
+                const disPlat = activeDisappearingPlatforms.find(dp => dp.mesh === plat.mesh);
+                if (disPlat && !disPlat.solid) return;
+
+                if (playerBox.intersectsBox(plat.box)) {
+                    // Check top landing
+                    const playerBottom = player.position.y;
+                    const platformTop = plat.box.max.y;
+
+                    if (playerBottom <= platformTop && playerBottom >= platformTop - 0.4 && playerStats.velocity.y <= 0) {
+                        player.position.y = platformTop;
+                        playerStats.velocity.y = 0;
+                        playerStats.isGrounded = true;
+                    }
+                }
+            });
+
+            // 5. Collision with Kill Blocks
+            killBlocks.forEach(kb => {
+                if (playerBox.intersectsBox(kb.box)) {
+                    takeDamage(100); // Immediate kill on touch
+                }
+            });
+
+            // 6. Checkpoint Trigger Check
+            checkpoints.forEach(cp => {
+                const cpBox = new THREE.Box3().setFromObject(cp.mesh);
+                if (playerBox.intersectsBox(cpBox)) {
+                    if (cp.isFinish) {
+                        // Game Victory!
+                        document.getElementById('victory-modal').classList.remove('hidden');
+                    } else if (!cp.activated) {
+                        // Activate Checkpoint
+                        checkpoints.forEach(c => c.activated = false);
+                        cp.activated = true;
+                        playerStats.currentCheckpoint = cp.id;
+                        playerStats.checkpointPos.copy(cp.position);
+
+                        // Visual feedback (Color change to bright emerald)
+                        cp.mesh.material.color.setHex(0x00ff66);
+                        cp.mesh.material.emissive.setHex(0x00aa33);
+
+                        // Show Notification
+                        showToast(`체크포인트 ${cp.id + 1} 저장 완료!`);
+                        document.getElementById('stage-display').textContent = `${cp.id + 1} / ${stageData.length}`;
+                    }
+                }
+            });
+
+            // 7. Void Death (Fell off map)
+            if (player.position.y < -20) {
+                takeDamage(100);
+            }
+
+            // 8. Camera Position Update (Third Person Orbit)
+            const camTargetY = player.position.y + 1.5;
+            const cx = player.position.x + cameraDistance * Math.sin(cameraYaw) * Math.cos(cameraPitch);
+            const cy = camTargetY + cameraDistance * Math.sin(cameraPitch);
+            const cz = player.position.z + cameraDistance * Math.cos(cameraYaw) * Math.cos(cameraPitch);
+
+            camera.position.set(cx, cy, cz);
+            camera.lookAt(player.position.x, camTargetY, player.position.z);
+        }
+
+        // ==========================================
+        // DAMAGE & RESPAWN SYSTEM
+        // ==========================================
+        function takeDamage(amount) {
+            if (isDead) return;
+
+            playerStats.health = Math.max(0, playerStats.health - amount);
+            updateHealthUI();
+
+            if (playerStats.health <= 0) {
+                isDead = true;
+                showToast("데미지를 받았습니다! 부활합니다...", "bg-red-600");
+
+                // Flash Red
+                document.body.classList.add('bg-red-900');
+                setTimeout(() => document.body.classList.remove('bg-red-900'), 200);
+
+                setTimeout(() => {
+                    respawnPlayer();
+                }, 600);
+            }
+        }
+
+        function respawnPlayer(fullReset = false) {
+            if (fullReset) {
+                playerStats.currentCheckpoint = 0;
+                playerStats.checkpointPos.set(0, 3, 0);
+                document.getElementById('stage-display').textContent = `1 / ${stageData.length}`;
+            }
+
+            player.position.copy(playerStats.checkpointPos);
+            playerStats.velocity.set(0, 0, 0);
+            playerStats.health = playerStats.maxHealth;
+            updateHealthUI();
+            isDead = false;
+        }
+
+        function updateHealthUI() {
+            const healthBar = document.getElementById('health-bar');
+            const healthText = document.getElementById('health-text');
+            const pct = (playerStats.health / playerStats.maxHealth) * 100;
+
+            healthBar.style.width = `${pct}%`;
+            healthText.textContent = `${playerStats.health} HP`;
+        }
+
+        function showToast(message, bgColorClass = "bg-green-600") {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+
+            toastText.textContent = message;
+            toast.className = `absolute bottom-8 left-1/2 transform -translate-x-1/2 text-white font-bold px-6 py-3 rounded-full shadow-2xl border border-white/20 transition-opacity duration-300 pointer-events-none z-30 flex items-center gap-2 ${bgColorClass}`;
+            toast.style.opacity = '1';
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+            }, 2500);
+        }
+
+        // ==========================================
+        // MAIN ANIMATION LOOP
+        // ==========================================
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            renderer.render(scene, camera);
+        }
+
+        // Start App
+        window.onload = function() {
+            init();
+            animate();
+        };
+    </script>
+</body>
+</html>
